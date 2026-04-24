@@ -3,4 +3,4 @@
 
 ## ⚡ 一鍵安裝
 ```bash
-curl -sSL [https://raw.githubusercontent.com/YourUsername/attach_docker/main/install.sh](https://raw.githubusercontent.com/YourUsername/attach_docker/main/install.sh) | bash
+curl -sSL [https://raw.githubusercontent.com/wenfey/attach_docker/main/install.sh](https://raw.githubusercontent.com/YourUsername/attach_docker/main/install.sh) | bash
