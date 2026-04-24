@@ -1,0 +1,127 @@
+#!/bin/bash
+# ==========================================
+# 程式: attach_docker
+# 說明: 帶有歷史紀錄緩衝的 Docker 容器接管工具
+# ==========================================
+
+# --- 常數與 UI 工具 ---
+C_RED='\033[1;31m'
+C_GREEN='\033[1;32m'
+C_CYAN='\033[0;36m'
+C_YELLOW='\033[1;33m'
+C_RESET='\033[0m'
+
+print_err()  { echo -e "${C_RED}錯誤: $1${C_RESET}"; }
+print_header() { echo -e "\n${C_GREEN}=== $1 ===${C_RESET}"; }
+print_tip()  { echo -e "${C_CYAN}💡 提示: $1${C_RESET}"; }
+
+# --- 說明畫面 ---
+show_help() {
+    echo -e "${C_GREEN}=== attach_docker 說明 ===${C_RESET}"
+    echo "封裝 docker logs 與 docker attach 的工具，完美處理歷史紀錄銜接。"
+    echo -e "\n用法: attach_docker [選項] <容器名稱>"
+    echo -e "\n${C_YELLOW}自訂選項:${C_RESET}"
+    echo "      --hold <行數>           設定要保留的歷史紀錄行數 (預設為 0)"
+    echo "      --install-completion    線上下載並安裝 Bash 自動補全模組"
+    echo "  -h, --help                  顯示此說明畫面"
+    echo -e "\n${C_YELLOW}=== 原生 docker logs 選項 ===${C_RESET}"
+    docker logs --help | awk '/^Options:/{flag=1; print; next} flag{print}' | grep -v -E '\-f, \-\-follow'
+    exit 0
+}
+
+# --- 安裝補全腳本模組 ---
+install_completion() {
+    local GITHUB_USER="wenfey"
+    local GITHUB_REPO="attach_docker"
+    local BRANCH="main"
+    local RAW_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH"
+    echo -e "${C_CYAN}📥 正在下載並安裝 Bash 自動補全模組...${C_RESET}"
+    
+    local comp_dir="$HOME/.local/share/bash-completion/completions"
+    mkdir -p "$comp_dir"
+
+    local raw_url="$RAW_URL/completions/attach_docker.bash"
+    
+    if curl -sSLf "$raw_url" -o "$comp_dir/attach_docker"; then
+        echo -e "${C_GREEN}✅ 自動補全模組安裝成功！${C_RESET}"
+        echo -e "${C_YELLOW}請重新啟動終端機，或執行 'source ~/.bashrc' 來讓補全生效。${C_RESET}"
+    else
+        print_err "下載失敗，請檢查網路連線或 GitHub 網址是否正確。"
+        exit 1
+    fi
+    exit 0
+}
+
+# --- 參數解析模組 ---
+parse_args() {
+    if [ "$#" -eq 0 ]; then show_help; fi
+
+    # 第一道防線：全域攔截特殊指令
+    for opt in "$@"; do
+        if [[ "$opt" == "-h" || "$opt" == "--help" ]]; then
+            show_help
+        elif [[ "$opt" == "--install-completion" ]]; then
+            install_completion
+        elif [[ "$opt" == "-f" || "$opt" == "--follow" ]]; then
+            print_err "attach_docker 不支援 -f 或 --follow 選項。"
+            exit 1
+        fi
+    done
+
+    # 提取容器名稱與參數
+    CONTAINER="${@: -1}"
+    local args=("${@:1:$#-1}")
+    
+    HOLD_LINES=0
+    LOGS_OPTS=()
+
+    local i=0
+    while [[ $i -lt ${#args[@]} ]]; do
+        local opt="${args[$i]}"
+        if [[ "$opt" == "--hold" ]]; then
+            HOLD_LINES="${args[$i+1]}"
+            ((i++))
+        else
+            LOGS_OPTS+=("$opt")
+        fi
+        ((i++))
+    done
+
+    if [ ${#LOGS_OPTS[@]} -eq 0 ]; then
+        LOGS_OPTS=("--tail" "20")
+    fi
+}
+
+prompt_msg(){
+    print_header "準備接管容器: $CONTAINER"
+    print_tip "退出請按 Ctrl+P, Ctrl+Q (勿按 Ctrl+D)"
+}
+
+# --- 核心接管模組 ---
+render_and_attach() {
+    local tmp_log=$(mktemp)
+    
+    docker logs "${LOGS_OPTS[@]}" "$CONTAINER" > "$tmp_log" 2>&1
+    local total_lines=$(grep -c "^" "$tmp_log")
+
+    if (( total_lines <= HOLD_LINES || HOLD_LINES == 0 )); then
+        cat "$tmp_log"
+        prompt_msg
+    else
+        local head_lines=$((total_lines - HOLD_LINES))
+        head -n "$head_lines" "$tmp_log"
+        prompt_msg
+        tail -n "$HOLD_LINES" "$tmp_log"
+    fi
+
+    rm -f "$tmp_log"
+    exec docker attach "$CONTAINER"
+}
+
+# --- 主程式進入點 ---
+main() {
+    parse_args "$@"
+    render_and_attach
+}
+
+main "$@"
